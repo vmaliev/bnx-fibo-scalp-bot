@@ -1,60 +1,93 @@
 """
 BingX API Client
-Using official bingX SDK for signature handling
+Using HTTP requests with HMAC signature
 """
 
-from bingX import API
 import time
 import requests
+import hmac
+import hashlib
+from urllib.parse import urlencode
 from typing import List, Dict, Optional
 
 class BingXClient:
     """Simple BingX API client using HTTP requests"""
     
-    def __init__(self, api_key: str, secret_key: str, demo: bool = False, trading_type: str = 'spot'):
+    def __init__(self, api_key: str, secret_key: str, demo: bool = False, trading_type: str = 'spot', leverage: int = 5):
         """
-        Initialize BingX client using official SDK
+        Initialize BingX client with HTTP requests
         
         Args:
             api_key: BingX API key
             secret_key: BingX secret key
             demo: Use demo/testnet mode
             trading_type: 'spot' or 'futures'
+            leverage: Futures leverage (1-125)
         """
+        self.api_key = api_key
+        self.secret_key = secret_key
         self.trading_type = trading_type.lower()
+        self.leverage = leverage
         
-        # Use official bingX SDK for signature handling
+        # Set base URL based on mode
         if demo:
-            base_url = 'https://open-api-vst.bingx.com'
+            self.base_url = 'https://open-api-vst.bingx.com'
         else:
-            base_url = 'https://open-api.bingx.com'
-        
-        self.client = API(
-            api_key=api_key,
-            api_secret=secret_key,
-            base_url=base_url
-        )
+            self.base_url = 'https://open-api.bingx.com'
+    
+    def _generate_signature(self, query_string: str) -> str:
+        """Generate HMAC SHA256 signature"""
+        return hmac.new(
+            self.secret_key.encode('utf-8'),
+            query_string.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
     
     def _request(self, method: str, endpoint: str, params: Dict = None) -> Dict:
-        """Make HTTP request using official bingX SDK"""
+        """Make HTTP request with proper signature"""
         if params is None:
             params = {}
         
         try:
+            # Add timestamp
+            params['timestamp'] = int(time.time() * 1000)
+            
+            # Create query string
+            query_string = urlencode(sorted(params.items()))
+            
+            # Generate signature
+            signature = self._generate_signature(query_string)
+            
+            # Add signature to params
+            params['signature'] = signature
+            
+            # Headers
+            headers = {
+                'X-BX-APIKEY': self.api_key,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            # Build full URL
+            url = f"{self.base_url}{endpoint}"
+            
+            # Make request
             if method == 'GET':
-                result = self.client.get(endpoint, params=params)
+                response = requests.get(url, params=params, headers=headers, timeout=10)
             elif method == 'POST':
-                result = self.client.post(endpoint, params=params)
+                response = requests.post(url, data=params, headers=headers, timeout=10)
             elif method == 'DELETE':
-                result = self.client.delete(endpoint, params=params)
+                response = requests.delete(url, params=params, headers=headers, timeout=10)
             else:
                 raise ValueError(f"Unsupported method: {method}")
             
+            result = response.json()
             print(f"DEBUG API response: {result}")
             return result
             
         except Exception as e:
             print(f"API request error: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     def get_klines(self, symbol: str, interval: str, limit: int = 500) -> List[Dict]:
@@ -71,15 +104,11 @@ class BingXClient:
         """
         try:
             # Format symbol correctly for API
-            # Spot requires hyphen (BTC-USDT), futures requires no hyphen (BTCUSDT)
-            if self.trading_type == 'spot':
-                # Ensure hyphen format for spot
-                if '-' not in symbol:
-                    symbol = symbol[:3] + '-' + symbol[3:]  # Convert BTCUSDT to BTC-USDT
-                formatted_symbol = symbol
-            else:
-                # Remove hyphen for futures
-                formatted_symbol = symbol.replace('-', '')
+            # Both spot AND futures klines use hyphen format (BTC-USDT)
+            if '-' not in symbol:
+                symbol = symbol[:3] + '-' + symbol[3:]  # Convert BTCUSDT to BTC-USDT
+            
+            formatted_symbol = symbol
             
             params = {
                 'symbol': formatted_symbol,
@@ -105,6 +134,35 @@ class BingXClient:
         except Exception as e:
             print(f"Error fetching klines: {e}")
             return []
+    
+    def set_leverage(self, symbol: str, leverage: int, side: str = 'LONG') -> bool:
+        """
+        Set leverage for futures trading
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTC-USDT')
+            leverage: Leverage value (1-125)
+            side: 'LONG' or 'SHORT'
+            
+        Returns:
+            True if successful
+        """
+        if self.trading_type != 'futures':
+            return True  # Not applicable for spot trading
+        
+        try:
+            formatted_symbol = symbol.replace('-', '')
+            params = {
+                'symbol': formatted_symbol,
+                'leverage': leverage,
+                'side': side
+            }
+            endpoint = '/openApi/swap/v2/trade/leverage'
+            response = self._request('POST', endpoint, params)
+            return response.get('code') == 0 or 'success' in str(response).lower()
+        except Exception as e:
+            print(f"Error setting leverage: {e}")
+            return False
     
     def get_balance(self) -> Dict:
         """
@@ -158,6 +216,11 @@ class BingXClient:
                 'type': order_type,
                 'quantity': quantity
             }
+            
+            # Add futures-specific parameters
+            if self.trading_type == 'futures':
+                # Set position side based on buy/sell
+                params['positionSide'] = 'LONG' if side == 'BUY' else 'SHORT'
             
             if price:
                 params['price'] = price

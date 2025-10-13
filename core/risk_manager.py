@@ -10,7 +10,10 @@ class RiskManager:
         self.secret_key = secret_key or Settings.BINGX_SECRET_KEY
         demo = Settings.TRADING_MODE == 'testnet'
         trading_type = Settings.TRADING_TYPE
-        self.client = BingXClient(self.api_key, self.secret_key, demo=demo, trading_type=trading_type)
+        leverage = Settings.LEVERAGE if hasattr(Settings, 'LEVERAGE') else 5
+        self.client = BingXClient(self.api_key, self.secret_key, demo=demo, trading_type=trading_type, leverage=leverage)
+        self.leverage = leverage
+        self.trading_type = trading_type
         
         self.daily_trades = 0
         self.daily_pnl = 0.0
@@ -49,6 +52,8 @@ class RiskManager:
     def get_account_balance_full(self) -> dict:
         """
         Get full account balance info - calculates total assets value in USDT
+        For futures: returns available margin and equity
+        For spot: calculates total assets value in USDT
         
         Returns:
             dict: {'available': float, 'locked': float, 'total': float}
@@ -57,6 +62,24 @@ class RiskManager:
             account = self.client.get_balance()
             print(f"DEBUG get_balance: {account}")
             
+            # Handle futures balance differently
+            if self.trading_type == 'futures':
+                if isinstance(account, dict):
+                    # Futures balance structure: {balance: {...}}
+                    balance_data = account.get('balance', account)
+                    
+                    # Extract available margin and equity
+                    available_margin = float(balance_data.get('availableMargin', balance_data.get('balance', 0)))
+                    equity = float(balance_data.get('equity', balance_data.get('balance', 0)))
+                    used_margin = float(balance_data.get('usedMargin', 0))
+                    
+                    print(f"DEBUG: Futures balance - Available Margin: ${available_margin:.2f}, Equity: ${equity:.2f}, Used: ${used_margin:.2f}")
+                    return {'available': available_margin, 'locked': used_margin, 'total': equity}
+                
+                print(f"DEBUG: Could not parse futures balance, returning 0")
+                return {'available': 0.0, 'locked': 0.0, 'total': 0.0}
+            
+            # Spot balance handling
             total_available_usdt = 0.0
             total_locked_usdt = 0.0
             
@@ -129,18 +152,19 @@ class RiskManager:
     def calculate_position_size(self, entry_price: float, stop_loss: float, balance: float = None) -> float:
         """
         Calculate position size based on risk percentage
-        ULTRA-AGGRESSIVE: Minimum $1 position size
+        For futures: accounts for leverage to determine contract size
+        For spot: uses balance directly
         """
         if balance is None:
             balance = self.get_account_balance()
         
-        print(f"DEBUG: Balance={balance}, Entry={entry_price}, Stop={stop_loss}")
+        print(f"DEBUG: Balance={balance}, Entry={entry_price}, Stop={stop_loss}, Trading={self.trading_type}, Leverage={self.leverage if self.trading_type == 'futures' else 'N/A'}")
         
         if balance == 0:
             print("DEBUG: Balance is 0, returning 0")
             return 0.0
         
-        # Calculate risk-based position size
+        # Calculate risk amount (10% of balance)
         risk_amount = balance * (Settings.RISK_PERCENT / 100)
         
         price_risk = abs(entry_price - stop_loss)
@@ -148,19 +172,28 @@ class RiskManager:
             print("DEBUG: Price risk is 0, returning 0")
             return 0.0
         
+        # Calculate position size based on risk
         position_size = risk_amount / price_risk
         print(f"DEBUG: Risk-based position_size={position_size} ({position_size * entry_price:.2f} USD)")
         
-        # CRITICAL: Cap at 90% of balance to avoid "Insufficient assets" error
-        max_position_by_balance = (balance * 0.90) / entry_price
-        print(f"DEBUG: Max position by balance (90%)={max_position_by_balance} ({max_position_by_balance * entry_price:.2f} USD)")
+        # For futures, we can use leverage to increase position size
+        if self.trading_type == 'futures':
+            # Max position based on margin and leverage
+            # With 5x leverage, we can control 5x our margin
+            max_position_value = balance * self.leverage * 0.90  # 90% of max leverage capacity
+            max_position_by_balance = max_position_value / entry_price
+            print(f"DEBUG: Futures - Max position with {self.leverage}x leverage={max_position_by_balance} ({max_position_value:.2f} USD)")
+        else:
+            # For spot, cap at 90% of balance
+            max_position_by_balance = (balance * 0.90) / entry_price
+            print(f"DEBUG: Spot - Max position by balance (90%)={max_position_by_balance} ({max_position_by_balance * entry_price:.2f} USD)")
         
         # ULTRA-AGGRESSIVE: Enforce minimum $1 position
         min_position_value = 1.0  # $1 minimum
         min_position_size = min_position_value / entry_price
         print(f"DEBUG: Minimum position_size={min_position_size} ({min_position_value} USD)")
         
-        # Use risk-based size, capped at balance, minimum $1
+        # Use risk-based size, capped at max leverage capacity, minimum $1
         position_size = min(position_size, max_position_by_balance)
         if position_size < min_position_size:
             print(f"Position too small ({position_size * entry_price:.2f} USD), using minimum ${min_position_value}")
@@ -244,6 +277,12 @@ class RiskManager:
         if not can_trade:
             print(f"Cannot trade: {reason}")
             return None
+        
+        # Set leverage for futures trading
+        if self.trading_type == 'futures':
+            print(f"Setting {self.leverage}x leverage for {symbol}...")
+            self.client.set_leverage(symbol, self.leverage, 'LONG')
+            self.client.set_leverage(symbol, self.leverage, 'SHORT')
         
         balance = self.get_account_balance()
         entry_price = signal['entry_price']

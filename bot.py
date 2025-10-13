@@ -35,17 +35,28 @@ class FiboScalpBot:
         """Start the bot"""
         self.running = True
         self.logger.info(f"Starting Fibo Scalp Bot - Mode: {Settings.TRADING_MODE}")
+        self.logger.info(f"Trading Type: {Settings.TRADING_TYPE}")
+        if Settings.TRADING_TYPE == 'futures':
+            self.logger.info(f"Leverage: {Settings.LEVERAGE}x")
+        self.logger.info(f"Risk per trade: {Settings.RISK_PERCENT}%")
         self.logger.info(f"Symbol: {self.symbol}")
         self.logger.info(f"Timeframes: {', '.join(self.timeframes)}")
         
         # Get initial balance
         balance_info = self.risk_manager.get_account_balance_full()
         if balance_info['total'] > 0:
-            balance_text = f"\n💰 Total Assets: `${balance_info['total']:.2f}` | Available: `${balance_info['available']:.2f}`"
+            if Settings.TRADING_TYPE == 'futures':
+                balance_text = f"\n💰 Equity: `${balance_info['total']:.2f}` | Available Margin: `${balance_info['available']:.2f}`"
+            else:
+                balance_text = f"\n💰 Total Assets: `${balance_info['total']:.2f}` | Available: `${balance_info['available']:.2f}`"
         else:
             balance_text = ""
         
-        self.notifier.send_sync(f"🤖 *Bot Started*\n\nMode: {Settings.TRADING_MODE}\nSymbol: {self.symbol}{balance_text}")
+        trading_info = f"Mode: {Settings.TRADING_MODE}\nType: {Settings.TRADING_TYPE}"
+        if Settings.TRADING_TYPE == 'futures':
+            trading_info += f"\nLeverage: {Settings.LEVERAGE}x\nRisk: {Settings.RISK_PERCENT}%"
+        
+        self.notifier.send_sync(f"🤖 *Bot Started*\n\n{trading_info}\nSymbol: {self.symbol}{balance_text}")
         
         self.run_loop()
     
