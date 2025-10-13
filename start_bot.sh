@@ -5,8 +5,6 @@ echo "  Starting Fibo Scalp Bot"
 echo "=========================================="
 echo ""
 
-cd /home/ec2-user/bnx_bot_fiboscalp
-
 # Check balance first
 echo "Checking balance..."
 source venv/bin/activate

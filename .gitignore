@@ -38,3 +38,6 @@ logs/*.png
 *~
 
 .DS_Store
+
+.gemini/
+gha-creds-*.json
