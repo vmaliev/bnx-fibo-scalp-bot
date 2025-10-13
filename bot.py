@@ -8,6 +8,7 @@ from core.strategy import FiboScalpStrategy
 from core.risk_manager import RiskManager
 from core.logger import TradeLogger
 from core.telegram_notifier import TelegramNotifier
+from core.telegram_commands import TelegramCommandHandler
 from config.settings import Settings
 
 class FiboScalpBot:
@@ -17,6 +18,11 @@ class FiboScalpBot:
         self.data_fetcher = DataFetcher()
         self.strategy = FiboScalpStrategy(self.data_fetcher)
         self.risk_manager = RiskManager()
+        
+        # Initialize telegram command handler
+        self.command_handler = TelegramCommandHandler()
+        self.command_handler.set_bot_instance(self)
+        self.command_handler.set_balance_callback(lambda: self.risk_manager.get_account_balance_full())
         
         self.running = False
         self.symbol = Settings.SYMBOL
@@ -29,11 +35,16 @@ class FiboScalpBot:
         """Handle shutdown signals"""
         self.logger.info("Shutting down bot...")
         self.running = False
+        self.command_handler.stop()
         sys.exit(0)
     
     def start(self):
         """Start the bot"""
         self.running = True
+        
+        # Start telegram command handler
+        self.command_handler.start()
+        
         self.logger.info(f"Starting Fibo Scalp Bot - Mode: {Settings.TRADING_MODE}")
         self.logger.info(f"Trading Type: {Settings.TRADING_TYPE}")
         if Settings.TRADING_TYPE == 'futures':
@@ -44,13 +55,7 @@ class FiboScalpBot:
         
         # Get initial balance
         balance_info = self.risk_manager.get_account_balance_full()
-        if balance_info['total'] > 0:
-            if Settings.TRADING_TYPE == 'futures':
-                balance_text = f"\n💰 Equity: `${balance_info['total']:.2f}` | Available Margin: `${balance_info['available']:.2f}`"
-            else:
-                balance_text = f"\n💰 Total Assets: `${balance_info['total']:.2f}` | Available: `${balance_info['available']:.2f}`"
-        else:
-            balance_text = ""
+        balance_text = self.notifier._format_balance_info(balance_info)
         
         trading_info = f"Mode: {Settings.TRADING_MODE}\nType: {Settings.TRADING_TYPE}"
         if Settings.TRADING_TYPE == 'futures':

@@ -56,7 +56,12 @@ class RiskManager:
         For spot: calculates total assets value in USDT
         
         Returns:
-            dict: {'available': float, 'locked': float, 'total': float}
+            dict: {
+                'available': float, 
+                'locked': float, 
+                'total': float,
+                'assets': list of {'asset': str, 'free': float, 'locked': float, 'usd_value': float}
+            }
         """
         try:
             account = self.client.get_balance()
@@ -72,16 +77,33 @@ class RiskManager:
                     available_margin = float(balance_data.get('availableMargin', balance_data.get('balance', 0)))
                     equity = float(balance_data.get('equity', balance_data.get('balance', 0)))
                     used_margin = float(balance_data.get('usedMargin', 0))
+                    unrealized_pnl = float(balance_data.get('unrealizedProfit', 0))
                     
                     print(f"DEBUG: Futures balance - Available Margin: ${available_margin:.2f}, Equity: ${equity:.2f}, Used: ${used_margin:.2f}")
-                    return {'available': available_margin, 'locked': used_margin, 'total': equity}
+                    
+                    # For futures, show single USDT asset
+                    assets = [{
+                        'asset': 'USDT',
+                        'free': available_margin,
+                        'locked': used_margin,
+                        'usd_value': equity,
+                        'unrealized_pnl': unrealized_pnl
+                    }]
+                    
+                    return {
+                        'available': available_margin, 
+                        'locked': used_margin, 
+                        'total': equity,
+                        'assets': assets
+                    }
                 
                 print(f"DEBUG: Could not parse futures balance, returning 0")
-                return {'available': 0.0, 'locked': 0.0, 'total': 0.0}
+                return {'available': 0.0, 'locked': 0.0, 'total': 0.0, 'assets': []}
             
             # Spot balance handling
             total_available_usdt = 0.0
             total_locked_usdt = 0.0
+            assets_list = []
             
             if isinstance(account, dict):
                 # Try 'balances' (with s) first - BingX spot API format
@@ -101,6 +123,7 @@ class RiskManager:
                         if asset == 'USDT':
                             free_usdt = free
                             locked_usdt = locked
+                            current_price = 1.0
                         else:
                             # Get current price for this asset
                             try:
@@ -121,17 +144,35 @@ class RiskManager:
                                 else:
                                     free_usdt = 0
                                     locked_usdt = 0
+                                    current_price = 0
                             except Exception as e:
                                 print(f"Could not get price for {asset}: {e}")
                                 free_usdt = 0
                                 locked_usdt = 0
+                                current_price = 0
+                        
+                        # Add to assets list
+                        usd_value = free_usdt + locked_usdt
+                        if usd_value > 0:  # Only add assets with value
+                            assets_list.append({
+                                'asset': asset,
+                                'free': free,
+                                'locked': locked,
+                                'usd_value': usd_value,
+                                'price': current_price
+                            })
                         
                         total_available_usdt += free_usdt
                         total_locked_usdt += locked_usdt
                     
                     total_usdt = total_available_usdt + total_locked_usdt
                     print(f"DEBUG: Total Assets - Available: ${total_available_usdt:.2f}, Locked: ${total_locked_usdt:.2f}, Total: ${total_usdt:.2f}")
-                    return {'available': total_available_usdt, 'locked': total_locked_usdt, 'total': total_usdt}
+                    return {
+                        'available': total_available_usdt, 
+                        'locked': total_locked_usdt, 
+                        'total': total_usdt,
+                        'assets': assets_list
+                    }
                     
                 elif isinstance(balance, dict):
                     # Direct balance field (fallback)
@@ -139,10 +180,11 @@ class RiskManager:
                     locked = float(balance.get('locked', 0))
                     total = free + locked
                     print(f"DEBUG: Parsed balance (dict) - Available: {free}, Locked: {locked}, Total: {total}")
-                    return {'available': free, 'locked': locked, 'total': total}
+                    assets = [{'asset': 'USDT', 'free': free, 'locked': locked, 'usd_value': total, 'price': 1.0}] if total > 0 else []
+                    return {'available': free, 'locked': locked, 'total': total, 'assets': assets}
                     
             print(f"DEBUG: Could not parse balance, returning 0")
-            return {'available': 0.0, 'locked': 0.0, 'total': 0.0}
+            return {'available': 0.0, 'locked': 0.0, 'total': 0.0, 'assets': []}
         except Exception as e:
             print(f"Error getting balance: {e}")
             import traceback
