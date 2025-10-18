@@ -230,8 +230,8 @@ class RiskManager:
             max_position_by_balance = (balance * 0.90) / entry_price
             print(f"DEBUG: Spot - Max position by balance (90%)={max_position_by_balance} ({max_position_by_balance * entry_price:.2f} USD)")
         
-        # ULTRA-AGGRESSIVE: Enforce minimum $1 position
-        min_position_value = 1.0  # $1 minimum
+        # ULTRA-AGGRESSIVE: Enforce minimum $5 position
+        min_position_value = 5.0  # $5 minimum
         min_position_size = min_position_value / entry_price
         print(f"DEBUG: Minimum position_size={min_position_size} ({min_position_value} USD)")
         
@@ -333,13 +333,13 @@ class RiskManager:
         
         position_size = self.calculate_position_size(entry_price, stop_loss, balance)
         
-        # ULTRA-AGGRESSIVE: Removed zero check, minimum $1 enforced in calculate_position_size
+        # ULTRA-AGGRESSIVE: Removed zero check, minimum $5 enforced in calculate_position_size
         # if position_size == 0:
         #     print("Position size is 0")
         #     return None
         
         if position_size <= 0:
-            print(f"ERROR: Position size is {position_size}, should never be zero with $1 minimum!")
+            print(f"ERROR: Position size is {position_size}, should never be zero with $5 minimum!")
             return None
         
         side = 'BUY' if direction == 'up' else 'SELL'

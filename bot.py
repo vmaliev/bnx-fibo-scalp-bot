@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import time
 import signal
 import sys
@@ -45,23 +46,23 @@ class FiboScalpBot:
         # Start telegram command handler
         self.command_handler.start()
         
-        self.logger.info(f"Starting Fibo Scalp Bot - Mode: {Settings.TRADING_MODE}")
-        self.logger.info(f"Trading Type: {Settings.TRADING_TYPE}")
+        self.logger.info("Starting Fibo Scalp Bot - Mode: {}".format(Settings.TRADING_MODE))
+        self.logger.info("Trading Type: {}".format(Settings.TRADING_TYPE))
         if Settings.TRADING_TYPE == 'futures':
-            self.logger.info(f"Leverage: {Settings.LEVERAGE}x")
-        self.logger.info(f"Risk per trade: {Settings.RISK_PERCENT}%")
-        self.logger.info(f"Symbol: {self.symbol}")
-        self.logger.info(f"Timeframes: {', '.join(self.timeframes)}")
+            self.logger.info("Leverage: {}x".format(Settings.LEVERAGE))
+        self.logger.info("Risk per trade: {}%".format(Settings.RISK_PERCENT))
+        self.logger.info("Symbol: {}".format(self.symbol))
+        self.logger.info("Timeframes: {}".format(', '.join(self.timeframes)))
         
         # Get initial balance
         balance_info = self.risk_manager.get_account_balance_full()
         balance_text = self.notifier._format_balance_info(balance_info)
         
-        trading_info = f"Mode: {Settings.TRADING_MODE}\nType: {Settings.TRADING_TYPE}"
+        trading_info = "Mode: {}\nType: {}".format(Settings.TRADING_MODE, Settings.TRADING_TYPE)
         if Settings.TRADING_TYPE == 'futures':
-            trading_info += f"\nLeverage: {Settings.LEVERAGE}x\nRisk: {Settings.RISK_PERCENT}%"
+            trading_info += "\nLeverage: {}x\nRisk: {}%".format(Settings.LEVERAGE, Settings.RISK_PERCENT)
         
-        self.notifier.send_sync(f"🤖 *Bot Started*\n\n{trading_info}\nSymbol: {self.symbol}{balance_text}")
+        self.notifier.send_sync("*Bot Started*\n\n{}\nSymbol: {}{}".format(trading_info, self.symbol, balance_text))
         
         self.run_loop()
     
@@ -71,7 +72,7 @@ class FiboScalpBot:
         while self.running:
             try:
                 iteration += 1
-                self.logger.info(f"=== Iteration {iteration} - Checking market ===")
+                self.logger.info("=== Iteration {} - Checking market ===".format(iteration))
                 
                 market_data = self.data_fetcher.get_market_data(self.symbol, self.timeframes)
                 
@@ -80,24 +81,24 @@ class FiboScalpBot:
                     time.sleep(60)
                     continue
                 
-                self.logger.info(f"Market data fetched: {len(market_data)} timeframes")
+                self.logger.info("Market data fetched: {} timeframes".format(len(market_data)))
                 
                 # Log current price
                 df_1m = market_data.get('1m')
                 if df_1m is not None and not df_1m.empty:
                     current_price = df_1m['close'].iloc[-1]
-                    self.logger.info(f"Current {self.symbol} price: ${current_price:,.2f}")
+                    self.logger.info("Current {} price: ${:,.2f}".format(self.symbol, current_price))
                 
                 signal = self.strategy.generate_signal(market_data)
                 
                 if signal:
-                    self.logger.info(f"🎯 SIGNAL FOUND: {signal['direction']} on {signal['timeframe']}")
-                    self.logger.info(f"   Entry: ${signal['entry_price']:.2f}, Stop: ${signal['stop_loss']:.2f}")
+                    self.logger.info("SIGNAL FOUND: {} on {}".format(signal['direction'], signal['timeframe']))
+                    self.logger.info("   Entry: ${:.2f}, Stop: ${:.2f}".format(signal['entry_price'], signal['stop_loss']))
                     
                     trade_info = self.risk_manager.execute_trade(signal, self.symbol)
                     
                     if trade_info:
-                        self.logger.info(f"✅ Trade executed: {trade_info}")
+                        self.logger.info("Trade executed: {}".format(trade_info))
                         
                         self.logger.log_trade({
                             'timestamp': trade_info['timestamp'],
@@ -122,15 +123,15 @@ class FiboScalpBot:
                 
                 self.monitor_positions(market_data)
                 
-                self.logger.info(f"Sleeping 60 seconds until next check...")
+                self.logger.info("Sleeping 60 seconds until next check...")
                 time.sleep(60)
                 
             except Exception as e:
-                self.logger.error(f"Error in main loop: {e}")
-                self.notifier.notify_error(f"Main loop error: {str(e)}")
+                self.logger.error("Error in main loop: {}".format(e))
+                self.notifier.notify_error("Main loop error: {}".format(str(e)))
                 time.sleep(60)
     
-    def monitor_positions(self, market_data: dict):
+    def monitor_positions(self, market_data):
         """Monitor and manage active positions"""
         if not self.risk_manager.active_positions:
             return
@@ -150,13 +151,13 @@ class FiboScalpBot:
                 trailing_stop = self.risk_manager.trailing_stops[symbol]
                 
                 if position['direction'] == 'up' and current_price <= trailing_stop:
-                    self.logger.info(f"Trailing stop hit for {symbol}")
+                    self.logger.info("Trailing stop hit for {}".format(symbol))
                     self.risk_manager.close_position(symbol, "Trailing stop")
                     balance_info = self.risk_manager.get_account_balance_full()
                     self.notifier.notify_stop_loss(symbol, current_price, 0, balance_info=balance_info)
                 
                 elif position['direction'] == 'down' and current_price >= trailing_stop:
-                    self.logger.info(f"Trailing stop hit for {symbol}")
+                    self.logger.info("Trailing stop hit for {}".format(symbol))
                     self.risk_manager.close_position(symbol, "Trailing stop")
                     balance_info = self.risk_manager.get_account_balance_full()
                     self.notifier.notify_stop_loss(symbol, current_price, 0, balance_info=balance_info)

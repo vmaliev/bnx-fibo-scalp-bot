@@ -4,14 +4,11 @@ echo "=========================================="
 echo "  Starting Fibo Scalp Bot"
 echo "=========================================="
 echo ""
-
-cd /home/ec2-user/bnx_bot_fiboscalp
-
-# Check balance first
-echo "Checking balance..."
-source venv/bin/activate
-python check_balance.py
-
+ 
+ # Check balance first
+ echo "Checking balance..."
+ source venv/bin/activate
+ python check_balance.py
 echo ""
 echo "=========================================="
 echo "Starting bot..."
